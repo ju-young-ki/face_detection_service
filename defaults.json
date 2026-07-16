@@ -1,0 +1,17 @@
+{
+  "whitening": 0.80,
+  "smooth": 0.80,
+  "sharpness": 0.5,
+  "gamma": 1.0,
+  "contrast": 0.0,
+  "red": 0.0,
+  "green": 0.0,
+  "blue": 0.0,
+  "temperature": 0.0,
+  "hue": 0.0,
+  "saturation": 0.0,
+  "cutout": true,
+  "crop_category": "420",
+  "face_size": 10,
+  "top_margin_mm": 1.0
+}

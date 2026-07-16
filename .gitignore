@@ -1,0 +1,29 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+build_venv/
+.env
+*.log
+
+# PyInstaller
+build/
+dist/
+*.spec.bak
+
+# IDE / OS
+.idea/
+.vscode/
+*.swp
+.DS_Store
+Thumbs.db
+
+# Local test outputs
+*.jpg
+*.jpeg
+*.png
+!assets/**
+server_stdout.txt
+server_stderr.txt
