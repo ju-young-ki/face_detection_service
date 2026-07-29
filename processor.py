@@ -73,8 +73,13 @@ class PhotoProcessor:
                 "README의 모델 다운로드 안내를 확인해주세요."
             )
 
+        # model_asset_path는 Windows에서 비ASCII 경로(한글 폴더명 등)를
+        # 열지 못하는 경우가 있어, Python으로 읽은 바이트를 넘긴다.
+        face_model = _MODEL_PATH.read_bytes()
+        segmenter_model = _SEGMENTER_MODEL_PATH.read_bytes()
+
         options = vision.FaceLandmarkerOptions(
-            base_options=python.BaseOptions(model_asset_path=str(_MODEL_PATH)),
+            base_options=python.BaseOptions(model_asset_buffer=face_model),
             running_mode=vision.RunningMode.IMAGE,
             num_faces=10,
             min_face_detection_confidence=0.5,
@@ -85,7 +90,7 @@ class PhotoProcessor:
         self._landmarker = vision.FaceLandmarker.create_from_options(options)
 
         segmenter_options = vision.ImageSegmenterOptions(
-            base_options=python.BaseOptions(model_asset_path=str(_SEGMENTER_MODEL_PATH)),
+            base_options=python.BaseOptions(model_asset_buffer=segmenter_model),
             running_mode=vision.RunningMode.IMAGE,
             output_confidence_masks=True,
         )

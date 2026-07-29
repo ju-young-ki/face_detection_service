@@ -15,7 +15,11 @@ from paths import app_dir, resource_dir
 
 
 def _resolve_config_path() -> Path:
-    """실행 파일 옆 defaults.json을 우선하고, 없으면 번들 경로를 사용한다."""
+    """실행 파일 옆 defaults.json을 우선하고, 없으면 번들 경로를 사용한다.
+
+    매번 호출할 때마다 파일 존재 여부를 재확인하므로
+    실행 중에 파일이 생성되거나 위치가 바뀌어도 올바른 경로를 반환한다.
+    """
     beside = app_dir() / "defaults.json"
     if beside.is_file():
         return beside
@@ -24,8 +28,6 @@ def _resolve_config_path() -> Path:
         return bundled
     return beside
 
-
-_CONFIG_PATH = _resolve_config_path()
 
 # JSON 파일이 없거나 깨졌을 때 사용할 내장 기본값
 _BUILTIN: dict[str, Any] = {
@@ -47,10 +49,11 @@ _BUILTIN: dict[str, Any] = {
 }
 
 _cached: dict[str, Any] | None = None
+_cache_mtime: float = 0.0
 
 
 def config_path() -> Path:
-    return _CONFIG_PATH
+    return _resolve_config_path()
 
 
 def _flatten_if_legacy(raw: dict[str, Any]) -> dict[str, Any]:
@@ -71,15 +74,27 @@ def _flatten_if_legacy(raw: dict[str, Any]) -> dict[str, Any]:
 
 
 def load_defaults(*, force_reload: bool = False) -> dict[str, Any]:
-    """defaults.json을 읽어 통합 기본값을 반환한다."""
-    global _cached
+    """defaults.json을 읽어 통합 기본값을 반환한다.
+
+    force_reload=False 이어도 실행 파일 옆 defaults.json이
+    캐시 이후 변경되었으면 자동으로 다시 읽는다.
+    """
+    global _cached, _cache_mtime
+
+    config = _resolve_config_path()
+
     if _cached is not None and not force_reload:
-        return deepcopy(_cached)
+        # 파일이 존재하고, 캐시 후 변경된 경우 자동 무효화
+        try:
+            if not config.is_file() or config.stat().st_mtime <= _cache_mtime:
+                return deepcopy(_cached)
+        except OSError:
+            return deepcopy(_cached)
 
     merged = deepcopy(_BUILTIN)
-    if _CONFIG_PATH.is_file():
+    if config.is_file():
         try:
-            with _CONFIG_PATH.open(encoding="utf-8") as fp:
+            with config.open(encoding="utf-8") as fp:
                 raw = json.load(fp)
             if isinstance(raw, dict):
                 flat = _flatten_if_legacy(raw)
@@ -88,12 +103,58 @@ def load_defaults(*, force_reload: bool = False) -> dict[str, Any]:
             pass
 
     _cached = merged
+    try:
+        _cache_mtime = config.stat().st_mtime if config.is_file() else 0.0
+    except OSError:
+        _cache_mtime = 0.0
     return deepcopy(_cached)
 
 
 def get_defaults() -> dict[str, Any]:
     """통합 기본값 복사본을 반환한다."""
     return load_defaults()
+
+
+def _json_safe(value: Any) -> Any:
+    """JSON에 쓰기 좋게 값을 정규화한다."""
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, int) and not isinstance(value, bool):
+        return int(value)
+    if isinstance(value, float):
+        return round(float(value), 4)
+    if isinstance(value, str):
+        return value
+    return value
+
+
+def save_defaults(updates: dict[str, Any] | None = None, **kwargs: Any) -> Path:
+    """현재 설정을 실행 파일(또는 프로젝트) 옆 defaults.json에 저장한다.
+
+    UI에 없는 키(crop_category, face_size 등)는 기존 값을 유지한다.
+    저장 후 캐시를 즉시 갱신하므로 서버가 재시작 없이 새 값을 사용한다.
+    """
+    global _cached, _cache_mtime
+
+    current = load_defaults(force_reload=True)
+    if updates:
+        current.update(updates)
+    current.update(kwargs)
+
+    payload = {key: _json_safe(current.get(key, _BUILTIN[key])) for key in _BUILTIN}
+
+    target = app_dir() / "defaults.json"
+    target.parent.mkdir(parents=True, exist_ok=True)
+    with target.open("w", encoding="utf-8", newline="\n") as fp:
+        json.dump(payload, fp, ensure_ascii=False, indent=2)
+        fp.write("\n")
+
+    _cached = deepcopy(payload)
+    try:
+        _cache_mtime = target.stat().st_mtime
+    except OSError:
+        _cache_mtime = 0.0
+    return target
 
 
 def resolve_params(**provided: Any) -> dict[str, Any]:

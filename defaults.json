@@ -1,6 +1,6 @@
 {
-  "whitening": 0.80,
-  "smooth": 0.80,
+  "whitening": 0.8,
+  "smooth": 0.8,
   "sharpness": 0.5,
   "gamma": 1.0,
   "contrast": 0.0,

@@ -12,7 +12,7 @@ import cv2
 import numpy as np
 from PIL import Image, ImageTk
 
-from defaults_config import get_defaults
+from defaults_config import get_defaults, save_defaults
 from processor import PhotoProcessor
 
 ctk.set_appearance_mode("light")
@@ -233,7 +233,7 @@ class WhiteningApp(ctk.CTk):
 
     footer = ctk.CTkFrame(self, fg_color="transparent")
     footer.grid(row=2, column=0, sticky="ew", padx=20, pady=(8, 16))
-    footer.grid_columnconfigure(4, weight=1)
+    footer.grid_columnconfigure(5, weight=1)
 
     ctk.CTkButton(footer, text="이미지 열기", width=120, command=self._open_image).grid(
       row=0, column=0, padx=(0, 8)
@@ -257,7 +257,16 @@ class WhiteningApp(ctk.CTk):
       fg_color="#888888",
       hover_color="#666666",
       command=self._reset_sliders,
-    ).grid(row=0, column=3)
+    ).grid(row=0, column=3, padx=(0, 8))
+
+    ctk.CTkButton(
+      footer,
+      text="설정 저장",
+      width=100,
+      fg_color="#2E7D32",
+      hover_color="#1B5E20",
+      command=self._save_settings,
+    ).grid(row=0, column=4)
 
   def _register_value_label_refresher(self, refresher: callable) -> None:
     self._value_label_refreshers.append(refresher)
@@ -544,6 +553,36 @@ class WhiteningApp(ctk.CTk):
     self._head_margin_var.set(float(defaults["top_margin_mm"]))
     self._refresh_value_labels()
     self._schedule_process()
+
+  def _current_settings(self) -> dict:
+    return {
+      "whitening": self._whitening_var.get(),
+      "smooth": self._smooth_var.get(),
+      "sharpness": self._sharpness_var.get(),
+      "gamma": self._gamma_var.get(),
+      "contrast": self._contrast_var.get(),
+      "red": self._red_var.get(),
+      "green": self._green_var.get(),
+      "blue": self._blue_var.get(),
+      "temperature": self._temperature_var.get(),
+      "hue": self._hue_var.get(),
+      "saturation": self._saturation_var.get(),
+      "cutout": self._cutout_var.get(),
+      "top_margin_mm": self._head_margin_var.get(),
+    }
+
+  def _save_settings(self) -> None:
+    try:
+      path = save_defaults(self._current_settings())
+    except OSError as exc:
+      messagebox.showerror("오류", f"설정 저장에 실패했습니다.\n{exc}")
+      return
+
+    self._status_label.configure(text=f"설정 저장됨: {path.name}")
+    messagebox.showinfo(
+      "설정 저장 완료",
+      f"현재 슬라이더 값이 기본 설정으로 저장되었습니다.\n\n{path}",
+    )
 
   def _open_image(self) -> None:
     path = filedialog.askopenfilename(

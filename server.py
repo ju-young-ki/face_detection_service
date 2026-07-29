@@ -19,10 +19,12 @@ from typing import Annotated, Any
 import cv2
 import numpy as np
 from fastapi import FastAPI, File, Form, HTTPException, UploadFile
-from fastapi.responses import JSONResponse, Response
+from fastapi.responses import Response
 
 from defaults_config import load_defaults, resolve_params
 from processor import PhotoProcessor
+
+DEFAULT_PORT = 5000
 
 # ---------------------------------------------------------------------------
 # 전역 처리기
@@ -85,10 +87,14 @@ def _process_kwargs(params: dict[str, Any]) -> dict[str, Any]:
 async def _read_image_bgr(file: UploadFile) -> np.ndarray:
     """업로드 파일을 OpenCV BGR ndarray로 디코딩한다.
 
-    허용: Content-Type 이 image/* 인 파일 (jpg, png, webp 등)
-    거부: 빈 파일, 이미지가 아닌 MIME, 디코딩 실패
+    Content-Type이 없거나 application/octet-stream 이어도
+    실제 바이트로 이미지 디코딩을 시도한다. (Flutter 등 클라이언트 대응)
     """
-    if not file.content_type or not file.content_type.startswith("image/"):
+    content_type = (file.content_type or "").lower()
+    if content_type and not (
+        content_type.startswith("image/")
+        or content_type in ("application/octet-stream", "binary/octet-stream")
+    ):
         raise HTTPException(status_code=400, detail="이미지 파일만 업로드할 수 있습니다.")
 
     data = await file.read()
@@ -118,6 +124,18 @@ def _encode_image(image: np.ndarray, *, cutout: bool = False) -> tuple[bytes, st
     if not ok:
         raise HTTPException(status_code=500, detail="JPEG 인코딩에 실패했습니다.")
     return encoded.tobytes(), "image/jpeg"
+
+
+def _image_response(body: bytes, media_type: str, filename: str) -> Response:
+    """다운로드/저장이 쉽도록 Content-Disposition 을 포함한 이미지 응답."""
+    return Response(
+        content=body,
+        media_type=media_type,
+        headers={
+            "Content-Disposition": f'inline; filename="{filename}"',
+            "Cache-Control": "no-store",
+        },
+    )
 
 
 # ===========================================================================
@@ -229,7 +247,11 @@ async def crop_image(
     if not ok:
         raise HTTPException(status_code=500, detail="JPEG 인코딩에 실패했습니다.")
 
-    return Response(content=encoded.tobytes(), media_type="image/jpeg")
+    return _image_response(
+        encoded.tobytes(),
+        "image/jpeg",
+        f"crop_{category}.jpg",
+    )
 
 
 # ===========================================================================
@@ -251,12 +273,27 @@ async def face_detect_preview(
     processor = _get_processor()
     annotated = processor.draw_face_boxes(source)
     body, media_type = _encode_image(annotated)
-    return Response(content=body, media_type=media_type)
+    ext = "png" if media_type == "image/png" else "jpg"
+    return _image_response(body, media_type, f"faces_preview.{ext}")
+
+
+def _ensure_port_available(host: str, port: int) -> None:
+    """포트가 이미 사용 중이면 원인 안내 후 종료한다."""
+    import socket
+
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
+        sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        try:
+            sock.bind((host if host != "0.0.0.0" else "127.0.0.1", port))
+        except OSError as exc:
+            raise SystemExit(
+                f"포트 {port} 를 사용할 수 없습니다 ({exc}).\n"
+                "다른 프로그램이 이미 점유 중인지 확인해주세요."
+            ) from exc
 
 
 if __name__ == "__main__":
     import multiprocessing
-    import os
     import sys
     from pathlib import Path
 
@@ -274,5 +311,10 @@ if __name__ == "__main__":
 
     import uvicorn
 
+    host = "0.0.0.0"
+    port = DEFAULT_PORT
+    _ensure_port_available(host, port)
+    print(f"Face Detection Server: http://127.0.0.1:{port}/docs")
+
     # PyInstaller 실행 시 모듈 문자열("server:app") 대신 앱 객체를 직접 전달
-    uvicorn.run(app, host="0.0.0.0", port=5000, reload=False)
+    uvicorn.run(app, host=host, port=port, reload=False)

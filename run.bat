@@ -49,8 +49,16 @@ exit /b 1
 echo [+] Python: %PY_CMD% (64-bit)
 echo.
 
-if not exist "venv\Scripts\python.exe" (
-    echo [1/3] 가상환경 생성 중...
+set "REBUILD_VENV=0"
+if not exist "venv\Scripts\python.exe" set "REBUILD_VENV=1"
+if exist "venv\Scripts\python.exe" (
+    venv\Scripts\python.exe -c "import sys, struct; raise SystemExit(0 if struct.calcsize('P') == 8 else 1)" >nul 2>&1
+    if errorlevel 1 set "REBUILD_VENV=1"
+)
+
+if "%REBUILD_VENV%"=="1" (
+    echo [1/3] 가상환경 생성/재생성 중...
+    if exist "venv" rmdir /s /q venv
     %PY_CMD% -m venv venv
     if not exist "venv\Scripts\python.exe" (
         echo.
@@ -58,21 +66,15 @@ if not exist "venv\Scripts\python.exe" (
         pause
         exit /b 1
     )
-) else (
-    venv\Scripts\python.exe -c "import struct; raise SystemExit(0 if struct.calcsize('P') == 8 else 1)" >nul 2>&1
+    venv\Scripts\python.exe -c "import sys" >nul 2>&1
     if errorlevel 1 (
-        echo [1/3] 32비트 가상환경 감지 — 64비트로 재생성 중...
-        rmdir /s /q venv
-        %PY_CMD% -m venv venv
-        if not exist "venv\Scripts\python.exe" (
-            echo.
-            echo 가상환경 생성에 실패했습니다.
-            pause
-            exit /b 1
-        )
-    ) else (
-        echo [1/3] 가상환경 확인 완료
+        echo.
+        echo 가상환경 Python이 동작하지 않습니다.
+        pause
+        exit /b 1
     )
+) else (
+    echo [1/3] 가상환경 확인 완료
 )
 
 if not exist "models\face_landmarker.task" (
