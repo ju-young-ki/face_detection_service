@@ -60,6 +60,14 @@ class PhotoProcessor:
     _LEFT_EYE = _indices_from_connections(FaceLandmarksConnections.FACE_LANDMARKS_LEFT_EYE)
     _RIGHT_EYE = _indices_from_connections(FaceLandmarksConnections.FACE_LANDMARKS_RIGHT_EYE)
     _LIPS = _indices_from_connections(FaceLandmarksConnections.FACE_LANDMARKS_LIPS)
+    _LEFT_EYEBROW = _indices_from_connections(
+        FaceLandmarksConnections.FACE_LANDMARKS_LEFT_EYEBROW
+    )
+    _RIGHT_EYEBROW = _indices_from_connections(
+        FaceLandmarksConnections.FACE_LANDMARKS_RIGHT_EYEBROW
+    )
+    # 이마 상단·중앙 보조 포인트 (MediaPipe Face Mesh)
+    _FOREHEAD_GUIDES = (10, 67, 69, 104, 108, 151, 9, 337, 299, 333, 298, 301)
 
     def __init__(self) -> None:
         if not _MODEL_PATH.is_file():
@@ -380,9 +388,10 @@ class PhotoProcessor:
         temperature: float = 0.0,
         hue: float = 0.0,
         saturation: float = 0.0,
+        forehead_shine: float = 0.0,
         cutout: bool = False,
     ) -> np.ndarray:
-        """이미지에 미백·스무딩·색상·선명도·누끼 효과를 적용한다."""
+        """이미지에 미백·스무딩·이마광택·색상·선명도·누끼 효과를 적용한다."""
         if image_bgr is None or image_bgr.size == 0:
             raise ValueError("유효하지 않은 이미지입니다.")
 
@@ -397,8 +406,10 @@ class PhotoProcessor:
         temperature = float(np.clip(temperature, -100.0, 100.0))
         hue = float(np.clip(hue, -180.0, 180.0))
         saturation = float(np.clip(saturation, -100.0, 100.0))
+        forehead_shine = float(np.clip(forehead_shine, 0.0, 1.0))
 
-        skin_mask = self._build_skin_mask(image_bgr)
+        face_landmarks = self._detect_face_landmarks(image_bgr)
+        skin_mask = self._build_skin_mask_from_landmarks(image_bgr, face_landmarks)
         if skin_mask is None:
             skin_mask = self._fallback_skin_mask(image_bgr)
 
@@ -406,6 +417,11 @@ class PhotoProcessor:
         skin_mask = np.clip(skin_mask, 0.0, 1.0)
 
         result = image_bgr.astype(np.float32)
+
+        if forehead_shine > 0.01:
+            forehead_mask = self._build_forehead_mask(image_bgr, face_landmarks)
+            if forehead_mask is not None:
+                result = self._reduce_forehead_shine(result, forehead_mask, forehead_shine)
 
         if smooth > 0.01:
             result = self._smooth_skin(result, skin_mask, smooth)
@@ -506,17 +522,29 @@ class PhotoProcessor:
 
         return result
 
-    def _build_skin_mask(self, image_bgr: np.ndarray) -> np.ndarray | None:
-        h, w = image_bgr.shape[:2]
+    def _detect_face_landmarks(self, image_bgr: np.ndarray) -> list:
+        """MediaPipe로 얼굴 랜드마크 목록을 반환한다. 없으면 빈 리스트."""
         rgb = cv2.cvtColor(image_bgr, cv2.COLOR_BGR2RGB)
         mp_image = mp.Image(image_format=mp.ImageFormat.SRGB, data=rgb)
         result = self._landmarker.detect(mp_image)
+        return list(result.face_landmarks) if result.face_landmarks else []
 
-        if not result.face_landmarks:
+    def _build_skin_mask(self, image_bgr: np.ndarray) -> np.ndarray | None:
+        return self._build_skin_mask_from_landmarks(
+            image_bgr, self._detect_face_landmarks(image_bgr)
+        )
+
+    def _build_skin_mask_from_landmarks(
+        self,
+        image_bgr: np.ndarray,
+        face_landmarks: list,
+    ) -> np.ndarray | None:
+        h, w = image_bgr.shape[:2]
+        if not face_landmarks:
             return None
 
         mask = np.zeros((h, w), dtype=np.uint8)
-        for landmarks in result.face_landmarks:
+        for landmarks in face_landmarks:
             face_mask = np.zeros((h, w), dtype=np.uint8)
             self._fill_polygon(face_mask, landmarks, self._FACE_OVAL, w, h, 255)
 
@@ -530,6 +558,116 @@ class PhotoProcessor:
         mask = cv2.GaussianBlur(mask, (0, 0), sigmaX=12, sigmaY=12)
         return mask.astype(np.float32) / 255.0
 
+    def _build_forehead_mask(
+        self,
+        image_bgr: np.ndarray,
+        face_landmarks: list | None = None,
+    ) -> np.ndarray | None:
+        """눈썹 위~이마 상단 영역의 소프트 마스크를 만든다."""
+        h, w = image_bgr.shape[:2]
+        if face_landmarks is None:
+            face_landmarks = self._detect_face_landmarks(image_bgr)
+        if not face_landmarks:
+            return None
+
+        mask = np.zeros((h, w), dtype=np.uint8)
+        brow_indices = self._LEFT_EYEBROW + self._RIGHT_EYEBROW
+
+        for landmarks in face_landmarks:
+            brow_ys = [int(landmarks[i].y * h) for i in brow_indices if i < len(landmarks)]
+            if not brow_ys:
+                continue
+            brow_bottom = max(brow_ys)
+            margin = max(2, int(0.015 * h))
+
+            points: list[tuple[int, int]] = []
+            for i in self._FACE_OVAL:
+                if i >= len(landmarks):
+                    continue
+                x = int(landmarks[i].x * w)
+                y = int(landmarks[i].y * h)
+                if y <= brow_bottom + margin:
+                    points.append((x, y))
+
+            for i in brow_indices + list(self._FOREHEAD_GUIDES):
+                if i >= len(landmarks):
+                    continue
+                points.append((int(landmarks[i].x * w), int(landmarks[i].y * h)))
+
+            if len(points) < 3:
+                continue
+
+            hull = cv2.convexHull(np.array(points, dtype=np.int32))
+            cv2.fillConvexPoly(mask, hull, 255)
+
+        if not np.any(mask):
+            return None
+
+        mask = cv2.GaussianBlur(mask, (0, 0), sigmaX=10, sigmaY=10)
+        return np.clip(mask.astype(np.float32) / 255.0, 0.0, 1.0)
+
+    @staticmethod
+    def _reduce_forehead_shine(
+        image: np.ndarray,
+        forehead_mask: np.ndarray,
+        strength: float,
+    ) -> np.ndarray:
+        """이마의 스펙큘러 하이라이트(번들거림)를 완화한다.
+
+        밝은·저채도 영역을 주변 피부 톤으로 섞고 밝기를 낮춘다.
+        """
+        uint8 = np.clip(image, 0, 255).astype(np.uint8)
+        hsv = cv2.cvtColor(uint8, cv2.COLOR_BGR2HSV).astype(np.float32)
+        lab = cv2.cvtColor(uint8, cv2.COLOR_BGR2LAB).astype(np.float32)
+
+        l_channel = lab[:, :, 0]
+        s_channel = hsv[:, :, 1]
+        v_channel = hsv[:, :, 2]
+
+        region = forehead_mask > 0.08
+        if not np.any(region):
+            return image
+
+        median_l = float(np.median(l_channel[region]))
+        median_s = float(np.median(s_channel[region]))
+
+        # 밝기가 중앙값보다 높고 채도가 낮은 곳을 광택으로 본다
+        brightness = np.clip((l_channel - median_l) / 35.0, 0.0, 1.0)
+        low_sat = np.clip((70.0 - s_channel) / 70.0, 0.0, 1.0)
+        shine = brightness * np.maximum(low_sat, 0.25) * forehead_mask
+        shine = cv2.GaussianBlur(shine, (0, 0), sigmaX=4, sigmaY=4)
+        shine = np.clip(shine * (0.55 + strength * 1.2), 0.0, 1.0)
+
+        if float(np.max(shine)) < 0.02:
+            return image
+
+        # 주변 피부 톤으로 하이라이트 피크를 부드럽게 줄인다
+        sigma = 6.0 + strength * 10.0
+        softened = cv2.GaussianBlur(uint8, (0, 0), sigmaX=sigma, sigmaY=sigma).astype(
+            np.float32
+        )
+        amount = shine * strength
+        mixed = image * (1.0 - amount[..., None]) + softened * amount[..., None]
+
+        mixed_u8 = np.clip(mixed, 0, 255).astype(np.uint8)
+        lab_m = cv2.cvtColor(mixed_u8, cv2.COLOR_BGR2LAB).astype(np.float32)
+        hsv_m = cv2.cvtColor(mixed_u8, cv2.COLOR_BGR2HSV).astype(np.float32)
+
+        pull = amount
+        lab_m[:, :, 0] = lab_m[:, :, 0] * (1.0 - pull * 0.7) + median_l * (pull * 0.7)
+        hsv_m[:, :, 1] = np.clip(
+            hsv_m[:, :, 1] * (1.0 - pull * 0.3) + median_s * (pull * 0.3),
+            0,
+            255,
+        )
+        local_v = cv2.GaussianBlur(v_channel, (0, 0), sigmaX=12, sigmaY=12)
+        hsv_m[:, :, 2] = hsv_m[:, :, 2] * (1.0 - pull * 0.5) + local_v * (pull * 0.5)
+
+        from_lab = cv2.cvtColor(lab_m.astype(np.uint8), cv2.COLOR_LAB2BGR).astype(np.float32)
+        from_hsv = cv2.cvtColor(hsv_m.astype(np.uint8), cv2.COLOR_HSV2BGR).astype(np.float32)
+        toned = from_lab * 0.6 + from_hsv * 0.4
+
+        return image * (1.0 - amount[..., None]) + toned * amount[..., None]
     @staticmethod
     def _fill_polygon(
         canvas: np.ndarray,

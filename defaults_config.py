@@ -42,6 +42,7 @@ _BUILTIN: dict[str, Any] = {
     "temperature": 0.0,
     "hue": 0.0,
     "saturation": 0.0,
+    "forehead_shine": 0.0,
     "cutout": False,
     "crop_category": "420",
     "face_size": 10,

@@ -117,6 +117,7 @@ class WhiteningApp(ctk.CTk):
     self._temperature_var = tk.DoubleVar(value=float(defaults["temperature"]))
     self._hue_var = tk.DoubleVar(value=float(defaults["hue"]))
     self._saturation_var = tk.DoubleVar(value=float(defaults["saturation"]))
+    self._forehead_shine_var = tk.DoubleVar(value=float(defaults.get("forehead_shine", 0.0)))
     self._cutout_var = tk.BooleanVar(value=bool(defaults["cutout"]))
     self._head_margin_var = tk.DoubleVar(value=float(defaults["top_margin_mm"]))
 
@@ -124,6 +125,14 @@ class WhiteningApp(ctk.CTk):
     self._add_slider(controls, row, "미백", self._whitening_var, "피부를 밝고 깨끗하게")
     row += 3
     self._add_slider(controls, row, "스무딩", self._smooth_var, "모공·잔주름 부드럽게")
+    row += 3
+    self._add_slider(
+      controls,
+      row,
+      "이마 광 제거",
+      self._forehead_shine_var,
+      "이마 하이라이트·번들거림 완화",
+    )
     row += 3
     self._add_slider(controls, row, "선명도", self._sharpness_var, "윤곽과 디테일을 또렷하게")
     row += 3
@@ -549,6 +558,7 @@ class WhiteningApp(ctk.CTk):
     self._temperature_var.set(float(defaults["temperature"]))
     self._hue_var.set(float(defaults["hue"]))
     self._saturation_var.set(float(defaults["saturation"]))
+    self._forehead_shine_var.set(float(defaults.get("forehead_shine", 0.0)))
     self._cutout_var.set(bool(defaults["cutout"]))
     self._head_margin_var.set(float(defaults["top_margin_mm"]))
     self._refresh_value_labels()
@@ -567,6 +577,7 @@ class WhiteningApp(ctk.CTk):
       "temperature": self._temperature_var.get(),
       "hue": self._hue_var.get(),
       "saturation": self._saturation_var.get(),
+      "forehead_shine": self._forehead_shine_var.get(),
       "cutout": self._cutout_var.get(),
       "top_margin_mm": self._head_margin_var.get(),
     }
@@ -635,6 +646,7 @@ class WhiteningApp(ctk.CTk):
     temperature = self._temperature_var.get()
     hue = self._hue_var.get()
     saturation = self._saturation_var.get()
+    forehead_shine = self._forehead_shine_var.get()
     cutout = self._cutout_var.get()
 
     def work() -> None:
@@ -652,6 +664,7 @@ class WhiteningApp(ctk.CTk):
           temperature=temperature,
           hue=hue,
           saturation=saturation,
+          forehead_shine=forehead_shine,
           cutout=cutout,
         )
         self.after(0, lambda: self._on_process_done(result, None))
