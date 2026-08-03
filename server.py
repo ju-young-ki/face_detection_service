@@ -80,6 +80,7 @@ def _process_kwargs(params: dict[str, Any]) -> dict[str, Any]:
         "hue",
         "saturation",
         "forehead_shine",
+        "density",
         "cutout",
     )
     return {k: params[k] for k in keys}
@@ -208,6 +209,7 @@ async def crop_image(
     hue: Annotated[float | None, Form()] = None,
     saturation: Annotated[float | None, Form()] = None,
     forehead_shine: Annotated[float | None, Form(description="이마 광택 제거(0~1)")] = None,
+    density: Annotated[float | None, Form(description="진하게(0~1)")] = None,
 ) -> Response:
     """미백·누끼 등을 적용한 뒤 crop_category 규격으로 크롭한 JPEG를 반환한다."""
     params = resolve_params(
@@ -227,6 +229,7 @@ async def crop_image(
         hue=hue,
         saturation=saturation,
         forehead_shine=forehead_shine,
+        density=density,
     )
     category = str(params["crop_category"])
     size = int(params["face_size"])

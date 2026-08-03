@@ -118,6 +118,7 @@ class WhiteningApp(ctk.CTk):
     self._hue_var = tk.DoubleVar(value=float(defaults["hue"]))
     self._saturation_var = tk.DoubleVar(value=float(defaults["saturation"]))
     self._forehead_shine_var = tk.DoubleVar(value=float(defaults.get("forehead_shine", 0.0)))
+    self._density_var = tk.DoubleVar(value=float(defaults.get("density", 0.0)))
     self._cutout_var = tk.BooleanVar(value=bool(defaults["cutout"]))
     self._head_margin_var = tk.DoubleVar(value=float(defaults["top_margin_mm"]))
 
@@ -133,6 +134,8 @@ class WhiteningApp(ctk.CTk):
       self._forehead_shine_var,
       "이마 하이라이트·번들거림 완화",
     )
+    row += 3
+    self._add_slider(controls, row, "진하게", self._density_var, "톤을 누르고 색을 진하게")
     row += 3
     self._add_slider(controls, row, "선명도", self._sharpness_var, "윤곽과 디테일을 또렷하게")
     row += 3
@@ -559,6 +562,7 @@ class WhiteningApp(ctk.CTk):
     self._hue_var.set(float(defaults["hue"]))
     self._saturation_var.set(float(defaults["saturation"]))
     self._forehead_shine_var.set(float(defaults.get("forehead_shine", 0.0)))
+    self._density_var.set(float(defaults.get("density", 0.0)))
     self._cutout_var.set(bool(defaults["cutout"]))
     self._head_margin_var.set(float(defaults["top_margin_mm"]))
     self._refresh_value_labels()
@@ -578,6 +582,7 @@ class WhiteningApp(ctk.CTk):
       "hue": self._hue_var.get(),
       "saturation": self._saturation_var.get(),
       "forehead_shine": self._forehead_shine_var.get(),
+      "density": self._density_var.get(),
       "cutout": self._cutout_var.get(),
       "top_margin_mm": self._head_margin_var.get(),
     }
@@ -647,6 +652,7 @@ class WhiteningApp(ctk.CTk):
     hue = self._hue_var.get()
     saturation = self._saturation_var.get()
     forehead_shine = self._forehead_shine_var.get()
+    density = self._density_var.get()
     cutout = self._cutout_var.get()
 
     def work() -> None:
@@ -665,6 +671,7 @@ class WhiteningApp(ctk.CTk):
           hue=hue,
           saturation=saturation,
           forehead_shine=forehead_shine,
+          density=density,
           cutout=cutout,
         )
         self.after(0, lambda: self._on_process_done(result, None))

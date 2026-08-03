@@ -43,6 +43,7 @@ _BUILTIN: dict[str, Any] = {
     "hue": 0.0,
     "saturation": 0.0,
     "forehead_shine": 0.0,
+    "density": 0.0,
     "cutout": False,
     "crop_category": "420",
     "face_size": 10,

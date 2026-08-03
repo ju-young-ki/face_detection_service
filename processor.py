@@ -389,9 +389,10 @@ class PhotoProcessor:
         hue: float = 0.0,
         saturation: float = 0.0,
         forehead_shine: float = 0.0,
+        density: float = 0.0,
         cutout: bool = False,
     ) -> np.ndarray:
-        """이미지에 미백·스무딩·이마광택·색상·선명도·누끼 효과를 적용한다."""
+        """이미지에 미백·스무딩·이마광택·진하게·색상·선명도·누끼 효과를 적용한다."""
         if image_bgr is None or image_bgr.size == 0:
             raise ValueError("유효하지 않은 이미지입니다.")
 
@@ -407,6 +408,7 @@ class PhotoProcessor:
         hue = float(np.clip(hue, -180.0, 180.0))
         saturation = float(np.clip(saturation, -100.0, 100.0))
         forehead_shine = float(np.clip(forehead_shine, 0.0, 1.0))
+        density = float(np.clip(density, 0.0, 1.0))
 
         face_landmarks = self._detect_face_landmarks(image_bgr)
         skin_mask = self._build_skin_mask_from_landmarks(image_bgr, face_landmarks)
@@ -444,6 +446,9 @@ class PhotoProcessor:
                 saturation=saturation,
             )
 
+        if density > 0.01:
+            result = self._apply_density(result, density)
+
         if sharpness > 0.01:
             result = self._sharpen_image(result, sharpness)
 
@@ -453,6 +458,39 @@ class PhotoProcessor:
             result = self._apply_cutout(result)
 
         return result
+
+    @staticmethod
+    def _apply_density(image: np.ndarray, strength: float) -> np.ndarray:
+        """톤을 진하게 만든다. 중간톤을 누르고 대비·채도를 살짝 올린다."""
+        result = np.clip(image, 0, 255).astype(np.float32)
+        normalized = np.clip(result / 255.0, 0.0, 1.0)
+
+        # 중간톤을 눌러 전체적으로 진해 보이게 한다
+        power = 1.0 + strength * 0.38
+        deepened = np.power(normalized, power) * 255.0
+
+        # 부드러운 S자 대비
+        contrast_factor = 1.0 + strength * 0.32
+        deepened = (deepened - 128.0) * contrast_factor + 128.0
+        deepened = np.clip(deepened, 0, 255)
+
+        blend = 0.55 + strength * 0.45
+        mixed = result * (1.0 - blend) + deepened * blend
+
+        # 채도를 조금 올려 색도 진하게
+        uint8 = np.clip(mixed, 0, 255).astype(np.uint8)
+        hsv = cv2.cvtColor(uint8, cv2.COLOR_BGR2HSV).astype(np.float32)
+        hsv[:, :, 1] = np.clip(hsv[:, :, 1] * (1.0 + strength * 0.28), 0, 255)
+        # 하이라이트가 덜 날아가도록 V를 살짝 압축
+        hsv[:, :, 2] = np.clip(
+            hsv[:, :, 2] * (1.0 - strength * 0.06) + 128.0 * (strength * 0.04),
+            0,
+            255,
+        )
+        toned = cv2.cvtColor(hsv.astype(np.uint8), cv2.COLOR_HSV2BGR).astype(np.float32)
+
+        amount = 0.65 + strength * 0.35
+        return mixed * (1.0 - amount) + toned * amount
 
     @staticmethod
     def _color_adjustment_needed(
